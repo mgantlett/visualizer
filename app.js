@@ -1,20 +1,61 @@
 const AudioVisualizer = () => {
     const [audioContext, setAudioContext] = React.useState(null);
     const [analyser, setAnalyser] = React.useState(null);
+    const [audioInputs, setAudioInputs] = React.useState([]);
+    const [selectedInput, setSelectedInput] = React.useState('default');
     const spectrumCanvasRef = React.useRef(null);
     const oscilloscopeCanvasRef = React.useRef(null);
+
+    const getAudioInputs = async () => {
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const inputs = devices.filter(device => device.kind === 'audioinput');
+            setAudioInputs(inputs);
+        } catch (error) {
+            console.error('Error getting audio inputs:', error);
+        }
+    };
     
+    React.useEffect(() => {
+        getAudioInputs();
+        
+        return () => {
+            if (audioContext) {
+                audioContext.close();
+            }
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+        };
+    }, []);
+
+    const [currentStream, setCurrentStream] = React.useState(null);
+
     React.useEffect(() => {
         const initAudio = async () => {
             try {
+                if (audioContext) {
+                    audioContext.close();
+                }
+                if (currentStream) {
+                    currentStream.getTracks().forEach(track => track.stop());
+                }
+                
                 const context = new (window.AudioContext || window.webkitAudioContext)();
                 const analyserNode = context.createAnalyser();
                 analyserNode.fftSize = 2048;
                 
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const constraints = {
+                    audio: {
+                        deviceId: selectedInput !== 'default' ? {exact: selectedInput} : undefined
+                    }
+                };
+                
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 const source = context.createMediaStreamSource(stream);
                 source.connect(analyserNode);
                 
+                setCurrentStream(stream);
                 setAudioContext(context);
                 setAnalyser(analyserNode);
                 
@@ -25,7 +66,7 @@ const AudioVisualizer = () => {
         };
         
         initAudio();
-    }, []);
+    }, [selectedInput]);
     
     const drawVisualizer = () => {
         if (!analyser) return;
@@ -93,6 +134,28 @@ const AudioVisualizer = () => {
         <div id="visualizer-container">
             <h1 style={{textAlign: 'center', textShadow: '0 0 10px #0f0'}}>90s Audio Visualizer</h1>
             <div className="retro-box">
+                <div style={{marginBottom: '20px', textAlign: 'center'}}>
+                    <label htmlFor="audioInput" style={{marginRight: '10px'}}>Audio Input: </label>
+                    <select 
+                        id="audioInput"
+                        value={selectedInput}
+                        onChange={(e) => setSelectedInput(e.target.value)}
+                        style={{
+                            background: '#001100',
+                            color: '#0f0',
+                            border: '1px solid #0f0',
+                            padding: '5px',
+                            fontFamily: 'Courier New, monospace'
+                        }}
+                    >
+                        <option value="default">Default Input</option>
+                        {audioInputs.map((input) => (
+                            <option key={input.deviceId} value={input.deviceId}>
+                                {input.label || `Input ${input.deviceId}`}
+                            </option>
+                        ))}
+                    </select>
+                </div>
                 <h2>Spectrum Analyzer</h2>
                 <canvas 
                     ref={spectrumCanvasRef} 
