@@ -20,6 +20,9 @@ const AudioVisualizer = () => {
         getAudioInputs();
         
         return () => {
+            if (cleanupFunction) {
+                cleanupFunction();
+            }
             if (audioContext) {
                 audioContext.close();
             }
@@ -31,9 +34,15 @@ const AudioVisualizer = () => {
 
     const [currentStream, setCurrentStream] = React.useState(null);
 
+    const [cleanupFunction, setCleanupFunction] = React.useState(null);
+
     React.useEffect(() => {
         const initAudio = async () => {
             try {
+                // Cleanup previous state
+                if (cleanupFunction) {
+                    cleanupFunction();
+                }
                 if (audioContext) {
                     audioContext.close();
                 }
@@ -59,31 +68,53 @@ const AudioVisualizer = () => {
                 setAudioContext(context);
                 setAnalyser(analyserNode);
                 
-                drawVisualizer();
+                const cleanup = drawVisualizer();
+                setCleanupFunction(() => cleanup);
             } catch (error) {
                 console.error('Error initializing audio:', error);
             }
         };
         
         initAudio();
+        
+        // Cleanup on unmount or input change
+        return () => {
+            if (cleanupFunction) {
+                cleanupFunction();
+            }
+        };
     }, [selectedInput]);
     
     const drawVisualizer = () => {
-        if (!analyser) return;
+        if (!analyser) return () => {};
         
-        // Spectrum Analyzer
         const spectrumCanvas = spectrumCanvasRef.current;
-        const spectrumCtx = spectrumCanvas.getContext('2d');
+        const oscilloscopeCanvas = oscilloscopeCanvasRef.current;
+        
+        if (!spectrumCanvas || !oscilloscopeCanvas) {
+            console.error('Canvas elements not ready');
+            return () => {};
+        }
+        
+        // Create buffers once
         const bufferLength = analyser.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
-        
-        // Oscilloscope
-        const oscilloscopeCanvas = oscilloscopeCanvasRef.current;
-        const oscilloscopeCtx = oscilloscopeCanvas.getContext('2d');
         const timeDataArray = new Uint8Array(bufferLength);
         
+        // Get canvas contexts once
+        const spectrumCtx = spectrumCanvas.getContext('2d');
+        const oscilloscopeCtx = oscilloscopeCanvas.getContext('2d');
+        
+        if (!spectrumCtx || !oscilloscopeCtx) {
+            console.error('Unable to get canvas contexts');
+            return () => {};
+        }
+        
+        let animationFrameId;
+        
         const draw = () => {
-            requestAnimationFrame(draw);
+            if (!spectrumCanvas || !oscilloscopeCanvas) return;
+            animationFrameId = requestAnimationFrame(draw);
             
             // Draw Spectrum Analyzer
             analyser.getByteFrequencyData(dataArray);
@@ -128,6 +159,13 @@ const AudioVisualizer = () => {
         };
         
         draw();
+        
+        // Return cleanup function
+        return () => {
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+            }
+        };
     };
     
     return (
